@@ -38,10 +38,40 @@ IFS='	' read -r session win_idx win_name visible <<EOF
 $info
 EOF
 
-# The user is already looking at this pane — no banner needed.
-if [ "$visible" = "1" ]; then
-  "$TMUX_BIN" list-clients -F '#{?#{m:*focused*,#{client_flags}},#{client_session},}' 2>/dev/null |
-    grep -qFx "$session" && exit 0
+# Owning .app bundle of a tmux client, found by walking its process ancestry.
+term_app() {
+  pid="${1:-}"
+  while [ -n "$pid" ] && [ "$pid" -gt 1 ] 2>/dev/null; do
+    case "$(ps -o comm= -p "$pid" 2>/dev/null)" in
+      *.app/Contents/MacOS/*)
+        app="$(ps -o comm= -p "$pid")"
+        printf '%s.app\n' "${app%%.app/Contents/MacOS/*}"
+        return 0 ;;
+    esac
+    pid="$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')"
+  done
+  return 1
+}
+
+# Bundle path of whatever app is frontmost on the Mac right now.
+frontmost_app() {
+  asn="$(lsappinfo front 2>/dev/null)"
+  [ -n "$asn" ] || return 1
+  lsappinfo info -only bundlepath "$asn" 2>/dev/null |
+    sed -n 's/.*"LSBundlePath"="\(.*\)".*/\1/p'
+}
+
+# Prefer a client watching this very session; fall back to any client so a
+# click can still raise the terminal for a session nobody has attached.
+client_pid="$("$TMUX_BIN" list-clients -t "$session" -F '#{client_pid}' 2>/dev/null | head -n 1)"
+app="$(term_app "${client_pid:-$("$TMUX_BIN" list-clients -F '#{client_pid}' 2>/dev/null | head -n 1)}")" || app=''
+
+# Skip the banner only when the user is genuinely looking at this pane: it is
+# the active pane of an attached session *and* that terminal is frontmost.
+# tmux's own focused flag is useless here — it is hardwired on unless the
+# focus-events option is set, which it is not by default.
+if [ "$visible" = "1" ] && [ -n "$client_pid" ] && [ -n "$app" ]; then
+  [ "$(frontmost_app)" = "$app" ] && exit 0
 fi
 
 case "$event" in
@@ -50,20 +80,6 @@ case "$event" in
   *)            title='✻ Claude';   body="${message:-$event}" ;;
 esac
 title="$title · $session:$win_idx $win_name"
-
-# Terminal app to focus on click: walk the attached client's process
-# ancestry up to the owning .app bundle.
-app=''
-pid="$("$TMUX_BIN" list-clients -F '#{client_pid}' 2>/dev/null | head -n 1)"
-while [ -n "$pid" ] && [ "$pid" -gt 1 ] 2>/dev/null; do
-  case "$(ps -o comm= -p "$pid" 2>/dev/null)" in
-    *.app/Contents/MacOS/*)
-      app="$(ps -o comm= -p "$pid")"
-      app="${app%%.app/Contents/MacOS/*}.app"
-      break ;;
-  esac
-  pid="$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')"
-done
 
 exec_cmd="PATH=\"$(dirname "$TMUX_BIN"):\$PATH\"; '$DIR/agent-view.sh' jump '$pane'"
 [ -n "$app" ] && exec_cmd="open '$app'; $exec_cmd"
