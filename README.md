@@ -69,6 +69,26 @@ as *working*.
 - **Status-line summary** — `▲1 ✻2 ✔3 ○1` in `status-right`; the yellow `▲` tells you
   an agent is blocked on you without opening anything
 
+## Clickable notifications (optional, macOS)
+
+`scripts/agent-notify.sh` is an optional Claude Code hook: when an agent finishes
+(`Stop`) or needs your input (`Notification`), it sends a desktop banner —
+**clicking the banner focuses your terminal and jumps straight to that agent's
+pane**, reusing the same jump logic as the picker. Banners are skipped when the
+pane is already on screen in a focused client.
+
+Needs [terminal-notifier](https://github.com/julienXX/terminal-notifier)
+(`brew install terminal-notifier`). Register in `~/.claude/settings.json`:
+
+```json
+{
+  "hooks": {
+    "Stop": [{ "hooks": [{ "type": "command", "command": "/path/to/tmux-agent-view/scripts/agent-notify.sh", "async": true }] }],
+    "Notification": [{ "matcher": "*", "hooks": [{ "type": "command", "command": "/path/to/tmux-agent-view/scripts/agent-notify.sh", "async": true }] }]
+  }
+}
+```
+
 ## Requirements
 
 - tmux ≥ 3.2 (popups) — 3.3+ recommended for rounded borders

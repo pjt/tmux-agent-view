@@ -236,7 +236,16 @@ jump() { # <pane_id>
   win_idx="${target##*:}"
   tmux select-pane -t "$1" 2>/dev/null
   tmux select-window -t "$session:$win_idx" 2>/dev/null
-  tmux switch-client -t "$session" 2>/dev/null
+  if [ -n "${TMUX:-}" ]; then
+    tmux switch-client -t "$session" 2>/dev/null
+  else
+    # called from outside tmux (e.g. a notification click): no current
+    # client, so retarget every attached client explicitly
+    tmux list-clients -F '#{client_name}' 2>/dev/null |
+    while IFS= read -r client; do
+      tmux switch-client -c "$client" -t "$session" 2>/dev/null
+    done
+  fi
 }
 
 popup() {
