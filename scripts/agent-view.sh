@@ -137,7 +137,9 @@ style() { # <status> -> "icon<TAB>label<TAB>ansi color"
 # Header lines have an empty pane_id field; picker() skips them on enter.
 # AGENT_JUMP_CURRENT (optional) marks the pane the popup was opened from.
 list() {
-  local prev_status=''
+  local prev_status='' host hshort
+  host="$(hostname 2>/dev/null)"   # e.g. PeixiangdeMacBook-Pro.local
+  hshort="${host%%.*}"             # e.g. PeixiangdeMacBook-Pro
   scan | while IFS='	' read -r pane_id rank status session win_idx win_name title path attached stack; do
     local icon label color branch here
     IFS='	' read -r icon label color <<EOF
@@ -150,10 +152,11 @@ EOF
       prev_status="$status"
     fi
 
-    # Claude Code sets pane_title to the conversation topic; the default shell
-    # title looks like "user@host: path" — fall back to the window name then.
+    # Claude Code sets pane_title to the conversation topic; a plain shell
+    # leaves the OS default — "user@host: path" or a bare hostname — which
+    # tells us nothing. Fall back to the window name in those cases.
     case "$title" in
-      *@*:*) title="$win_name" ;;
+      *@*:* | "$host" | "$hshort") title="$win_name" ;;
     esac
 
     branch="$(git -C "$path" rev-parse --abbrev-ref HEAD 2>/dev/null)"
