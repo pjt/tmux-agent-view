@@ -61,7 +61,7 @@ as *working*.
 ## Features
 
 - **All sessions, one picker** — every pane running Claude Code / Codex / OpenCode /
-  aider, grouped by state, agents that need you first
+  aider / Kimi Code, grouped by state, agents that need you first
 - **Live preview** — the right half of the picker shows the selected agent's screen,
   in color, as it is right now
 - **Context at a glance** — conversation topic (from the pane title Claude Code sets),
@@ -118,7 +118,7 @@ Set in `~/.tmux.conf` before the plugin line:
 |---|---|---|
 | `@agent-view-key` | `a` | key after prefix that opens the picker |
 | `@agent-view-status` | `on` | prepend the agent summary to `status-right` |
-| `@agent-view-pattern` | `claude\|codex\|opencode\|aider` | regex matched against pane child processes |
+| `@agent-view-pattern` | `claude\|codex\|opencode\|aider\|kimi(-code)?([^-]\|$)` | regex matched against pane child processes |
 | `@agent-view-width` | `90%` | popup width |
 | `@agent-view-height` | `75%` | popup height |
 

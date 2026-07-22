@@ -5,7 +5,10 @@
 set -u
 SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 
-DEFAULT_PATTERN='claude|codex|opencode|aider'
+# The Kimi Code CLI runs as argv0 "kimi" (older sessions) or "kimi-code"
+# (newer ones). `kimi(-code)?([^-]|$)` matches both while excluding the
+# kimi-webbridge daemon that shares the "kimi" prefix.
+DEFAULT_PATTERN='claude|codex|opencode|aider|kimi(-code)?([^-]|$)'
 
 opt() { # opt <@option> <default>
   local v
@@ -83,15 +86,21 @@ scan() {
 # needs_input, and a spinner below an old turn summary reads as working.
 pane_status() { # <pane_id> -> needs_input|failed|stopped|working|completed|idle
   tmux capture-pane -p -t "$1" 2>/dev/null | tail -n 30 | awk '
-    # permission dialog, plan approval, or a numbered question (AskUserQuestion)
-    /Do you want|Would you like|❯ [0-9]+\./                  { s = "needs_input"; next }
+    # permission dialog, plan approval, or a numbered question (AskUserQuestion).
+    # Claude Code uses "❯ 1."; Kimi Code uses "▶ 1." with Approve/Reject options.
+    /Do you want|Would you like|[❯▶] [0-9]+\.|Approve for this session|Reject with feedback/ \
+                                                             { s = "needs_input"; next }
     # turn aborted by an API/tool error
     /API Error|Request timed out|OAuth token|Credit balance|overloaded_error|rate.?limit/ \
                                                              { s = "failed"; next }
     # user pressed esc/ctrl-c mid-turn
     /⎿ *Interrupted|Interrupted by user/                     { s = "stopped"; next }
-    # generating / running tools: spinner word + "… (" or the interrupt hint
+    # generating / running tools. Claude Code: spinner word + "… (" or the
+    # interrupt hint. Kimi Code: a braille spinner + "thinking…/working…" or a
+    # moon-phase spinner "🌒 · ".
     /esc to interrupt|(✻|✽|✶|✳|✢|✺|·) .*… ?\(/               { s = "working"; next }
+    /(⠋|⠙|⠹|⠸|⠼|⠴|⠦|⠧|⠇|⠏) (thinking|working)\.\.\./       { s = "working"; next }
+    /(🌑|🌒|🌓|🌔|🌕|🌖|🌗|🌘) ·/                            { s = "working"; next }
     # turn finished: "✻ Worked for 1m 5s" summary or a "※ recap:" line.
     # !/…/ keeps spinner lines like "(… · thought for 8s)" out of here.
     (/(✻|✽|✶|✳|✢|✺) [A-Za-z]+ for [0-9]/ && !/…/) || /※ recap:/ \
