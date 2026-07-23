@@ -31,32 +31,38 @@ Plugins like [tmux-agent-sidebar](https://github.com/hiroppy/tmux-agent-sidebar)
 [tmux-agent-status](https://github.com/samleeney/tmux-agent-status) keep a persistent
 sidebar pane fed by agent hooks. tmux-agent-view takes the opposite approach:
 
-- **No hooks, no daemon, no binary, no state.** A single bash script scans panes
-  on demand — the picker is always live, and there is nothing to set up or go stale.
-- **Zero screen cost.** Nothing is docked; your layout is yours.
+- **On-demand, nothing docked.** A single bash script scans panes when you press the
+  key — no sidebar eating your layout, no daemon, no binary.
+- **Zero-config discovery.** Agents are found by scanning pane processes, so every
+  agent shows up with no setup at all.
+- **Hooks are opt-in and lightweight.** For rock-solid state, [one command](#hooks--accurate-state--clickable-notifications)
+  wires each agent CLI to write a tiny per-pane state file — no long-running process.
+  Without them, state falls back to reading the screen.
 - **macOS system bash is enough** (bash 3.2 compatible).
 
 ## Agent states
 
-Six states, mirroring [Claude Code's agent view](https://code.claude.com/docs/en/agent-view),
-detected purely from each pane's screen content — no hooks needed. The picker groups
-agents by state; states that need you sort first. Within a group, agents are ordered
-by your most recent visits (LRU): tmux's session attach times and per-session window
-stacks, both driven only by your navigation — an agent spamming output never jumps
-the queue.
+Six states, mirroring [Claude Code's agent view](https://code.claude.com/docs/en/agent-view).
+With [hooks](#hooks--accurate-state--clickable-notifications) installed, each agent CLI
+reports its own state as it changes — accurate, instant, and the only way to catch agents
+(like Kimi Code) that leave no "done" marker on screen. Without hooks, state is read from
+the pane's screen content as a fallback. The picker groups agents by state; states that
+need you sort first. Within a group, agents are ordered by your most recent visits (LRU):
+tmux's session attach times and per-session window stacks, both driven only by your
+navigation — an agent spamming output never jumps the queue.
 
-| state | meaning | detected by |
+| state | meaning | hook event → / screen fallback matches |
 |---|---|---|
-| `▲ needs input` | waiting on a permission decision or a question | `Do you want …` / `Would you like …` / a numbered `❯ 1.` choice |
-| `✖ failed` | turn ended with an API/tool error | `API Error`, rate limit / timeout / auth messages |
-| `■ stopped` | you interrupted it (esc / ctrl-c) | `Interrupted` marker |
-| `✻ working` | generating or running tools | spinner line `✻ Doing… (…)` / `esc to interrupt` |
-| `✔ completed` | last turn finished normally | turn summary `✻ Worked for 1m 5s` / `※ recap:` line |
-| `○ idle` | sitting at the prompt | none of the above |
+| `▲ needs input` | waiting on a permission decision or a question | `Notification` / `PermissionRequest` · `Do you want …` / a numbered `❯ 1.` choice |
+| `✖ failed` | turn ended with an API/tool error | `StopFailure` (Kimi) · `API Error`, rate limit / timeout / auth messages |
+| `■ stopped` | you interrupted it (esc / ctrl-c) | `Interrupt` (Kimi) · `Interrupted` marker |
+| `✻ working` | generating or running tools | `UserPromptSubmit` · spinner line `✻ Doing… (…)` / `esc to interrupt` |
+| `✔ completed` | last turn finished normally | `Stop` · turn summary `✻ Worked for 1m 5s` / `※ recap:` line |
+| `○ idle` | sitting at the prompt | `SessionStart` · none of the above |
 
-The marker closest to the bottom of the screen wins, so a permission dialog below a
-spinner reads as *needs input*, and a fresh spinner below an old turn summary reads
-as *working*.
+In the screen-scrape fallback, the marker closest to the bottom of the screen wins, so a
+permission dialog below a spinner reads as *needs input*, and a fresh spinner below an old
+turn summary reads as *working*.
 
 ## Features
 
@@ -69,25 +75,38 @@ as *working*.
 - **Status-line summary** — `▲1 ✻2 ✔3 ○1` in `status-right`; the yellow `▲` tells you
   an agent is blocked on you without opening anything
 
-## Clickable notifications (optional, macOS)
+## Hooks — accurate state + clickable notifications
 
-`scripts/agent-notify.sh` is an optional Claude Code hook: when an agent finishes
-(`Stop`) or needs your input (`Notification`), it sends a desktop banner —
-**clicking the banner focuses your terminal and jumps straight to that agent's
-pane**, reusing the same jump logic as the picker. Banners are skipped when the
-pane is already on screen in a focused client.
+Run once to wire every installed agent CLI:
 
-Needs [terminal-notifier](https://github.com/julienXX/terminal-notifier)
-(`brew install terminal-notifier`). Register in `~/.claude/settings.json`:
-
-```json
-{
-  "hooks": {
-    "Stop": [{ "hooks": [{ "type": "command", "command": "/path/to/tmux-agent-view/scripts/agent-notify.sh", "async": true }] }],
-    "Notification": [{ "matcher": "*", "hooks": [{ "type": "command", "command": "/path/to/tmux-agent-view/scripts/agent-notify.sh", "async": true }] }]
-  }
-}
+```sh
+scripts/install-hooks.sh
 ```
+
+It registers one hook, `scripts/agent-hook.sh`, in whichever configs it finds (each is
+backed up first; re-running is safe and idempotent):
+
+| CLI | config it edits |
+|---|---|
+| Claude Code | `~/.claude/settings.json` |
+| Codex | `~/.codex/hooks.json` |
+| Kimi Code | `~/.kimi-code/config.toml` |
+
+On each turn boundary the hook writes the agent's state to
+`${XDG_CACHE_HOME:-~/.cache}/tmux-agent-view/<pane>.state`, which the picker reads instead
+of scraping the screen. Stale files are garbage-collected when the picker runs (pane gone,
+or older than a day). The event → state mapping is in the
+[Agent states](#agent-states) table above.
+
+**Codex only:** Codex requires you to *trust* hooks. The first time you start Codex
+interactively after installing, it prompts once to trust `agent-hook.sh` — accept it.
+Sessions already running when you install won't pick up the hooks until restarted.
+
+**Clickable notifications (macOS):** when an agent needs input or finishes, the hook also
+sends a desktop banner — **clicking it focuses your terminal and jumps straight to that
+pane**, reusing the picker's jump logic. Banners are skipped when the pane is already on
+screen in a focused client. Needs [terminal-notifier](https://github.com/julienXX/terminal-notifier)
+(`brew install terminal-notifier`); silently skipped if absent.
 
 ## Requirements
 
@@ -144,12 +163,14 @@ set -g @agent-view-pattern 'claude|goose'
 1. `tmux list-panes -a` + one `ps` call; a pane is an agent pane if any process in its
    subtree matches the agent pattern (matched against the executable, so editing
    `CLAUDE.md` in nvim doesn't count).
-2. State comes from `tmux capture-pane` screen heuristics — see
-   [Agent states](#agent-states) above.
+2. State comes from the per-pane state file that agent CLIs write via
+   [hooks](#hooks--accurate-state--clickable-notifications); with no state file it falls
+   back to `tmux capture-pane` screen heuristics — see [Agent states](#agent-states) above.
 3. Jumping is plain `switch-client` + `select-window` + `select-pane`.
 
-State heuristics are tuned for Claude Code; other agents are detected and listed but
-may always show as idle.
+With hooks installed, state is reported directly by Claude Code, Codex, and Kimi Code. The
+screen-scrape fallback is tuned for Claude Code; unhooked agents of other kinds are still
+detected and listed but may show as idle.
 
 ## License
 

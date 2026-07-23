@@ -10,6 +10,10 @@ SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 # kimi-webbridge daemon that shares the "kimi" prefix.
 DEFAULT_PATTERN='claude|codex|opencode|aider|kimi(-code)?([^-]|$)'
 
+# Per-pane state written by agent-hook.sh (hook-driven). Read in preference to
+# scraping the screen; kept in sync with agent-hook.sh's STATE_DIR.
+STATE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/tmux-agent-view"
+
 opt() { # opt <@option> <default>
   local v
   v="$(tmux show-option -gqv "$1" 2>/dev/null)"
@@ -17,6 +21,29 @@ opt() { # opt <@option> <default>
 }
 
 # ---------------------------------------------------------------- detection
+
+# Drop stale state files: those untouched for over a day, and those whose pane
+# no longer exists (covers closed panes, agent exits without a SessionEnd hook,
+# and pane-id reuse after a tmux server restart).
+gc_state() {
+  [ -d "$STATE_DIR" ] || return 0
+  find "$STATE_DIR" -name '*.state' -mtime +1 -delete 2>/dev/null
+  local live f pid
+  live="$(tmux list-panes -a -F '#{pane_id}' 2>/dev/null)"
+  [ -n "$live" ] || return 0
+  for f in "$STATE_DIR"/*.state; do
+    [ -e "$f" ] || continue
+    pid="$(basename "$f")"; pid="${pid%.state}"
+    case "
+$live
+" in
+      *"
+$pid
+"*) ;;                        # pane still alive
+      *)  rm -f "$f" 2>/dev/null ;;  # orphan
+    esac
+  done
+}
 
 # Emit one line per agent pane:
 #   pane_id \t rank \t status \t session \t win_idx \t win_name \t title \t path
@@ -27,6 +54,7 @@ opt() { # opt <@option> <default>
 scan() {
   local pattern
   pattern="$(opt @agent-view-pattern "$DEFAULT_PATTERN")"
+  gc_state
 
   tmux list-panes -a \
     -F '#{pane_id}	#{pane_pid}	#{session_name}	#{window_index}	#{window_name}	#{pane_title}	#{pane_current_path}	#{session_last_attached}	#{window_stack_index}' |
@@ -80,11 +108,23 @@ scan() {
   done | sort -t '	' -k2,2n -k9,9nr -k10,10n -k5,5n
 }
 
+# Prefer the hook-written state file (agent-hook.sh); it is authoritative and
+# cheap. Fall back to screen scraping for panes with no state yet — an agent
+# started before the hooks were installed, or a CLI without hook support.
+pane_status() { # <pane_id> -> needs_input|failed|stopped|working|completed|idle
+  local sf="$STATE_DIR/$1.state" st
+  if [ -f "$sf" ]; then
+    IFS='	' read -r st _ < "$sf" 2>/dev/null
+    if [ -n "${st:-}" ]; then printf '%s\n' "$st"; return; fi
+  fi
+  scrape_status "$1"
+}
+
 # Six states, mirroring Claude Code's agent view, from screen content alone.
 # The marker CLOSEST TO THE BOTTOM of the screen wins (later lines describe
 # the most recent event), so a permission dialog below a spinner reads as
 # needs_input, and a spinner below an old turn summary reads as working.
-pane_status() { # <pane_id> -> needs_input|failed|stopped|working|completed|idle
+scrape_status() { # <pane_id> -> needs_input|failed|stopped|working|completed|idle
   tmux capture-pane -p -t "$1" 2>/dev/null | tail -n 30 | awk '
     # permission dialog, plan approval, or a numbered question (AskUserQuestion).
     # Claude Code uses "❯ 1."; Kimi Code uses "▶ 1." with Approve/Reject options.
