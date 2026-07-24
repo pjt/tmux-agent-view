@@ -116,7 +116,22 @@ pane_status() { # <pane_id> -> needs_input|failed|stopped|working|completed|idle
   local sf="$STATE_DIR/$1.state" st
   if [ -f "$sf" ]; then
     IFS='	' read -r st _ < "$sf" 2>/dev/null
-    if [ -n "${st:-}" ]; then printf '%s\n' "$st"; return; fi
+    if [ -n "${st:-}" ]; then
+      # A pane that completed long ago is no longer interesting: age it down to
+      # idle so it sinks below active agents. TTL in seconds (0 disables).
+      # Only `completed` ages — `working`/`needs_input` have no safe timeout
+      # (a long turn or an unanswered prompt is legitimately old).
+      if [ "$st" = "completed" ]; then
+        local ttl mt now
+        ttl="$(opt @agent-view-completed-ttl 1800)"
+        if [ "${ttl:-0}" -gt 0 ] 2>/dev/null; then
+          mt="$(stat -f %m "$sf" 2>/dev/null || stat -c %Y "$sf" 2>/dev/null)"
+          now="$(date +%s 2>/dev/null)"
+          [ -n "$mt" ] && [ -n "$now" ] && [ "$((now - mt))" -ge "$ttl" ] && st='idle'
+        fi
+      fi
+      printf '%s\n' "$st"; return
+    fi
   fi
   printf 'idle\n'
 }
