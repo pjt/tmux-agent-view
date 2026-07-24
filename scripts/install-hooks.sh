@@ -41,7 +41,19 @@ for grp in [g for arr in h.values() for g in arr]:
         if "agent-notify.sh" in c:
             e["command"] = cmd; migrated += 1
 
-# 2) ensure state-driving events are registered (async, state-only for the
+# Notification fires for several types; only these genuinely need you. Crucially
+# this EXCLUDES idle_prompt — Claude waiting after a finished turn — which the
+# old catch-all "*" matcher mislabeled as needs_input on completed panes.
+NOTIFY_MATCHER = "permission_prompt|elicitation_dialog|agent_needs_input"
+
+# 2a) retune any existing Notification hook of ours off the old "*" matcher.
+retuned = 0
+for grp in h.get("Notification", []):
+    if any(e.get("command", "").startswith(hook) for e in grp.get("hooks", [])):
+        if grp.get("matcher") != NOTIFY_MATCHER:
+            grp["matcher"] = NOTIFY_MATCHER; retuned += 1
+
+# 2b) ensure state-driving events are registered (async, state-only for the
 #    non-attention ones — the script itself decides whether to notify)
 added = []
 for event in ("Stop", "Notification", "UserPromptSubmit", "SessionEnd"):
@@ -49,12 +61,12 @@ for event in ("Stop", "Notification", "UserPromptSubmit", "SessionEnd"):
         continue
     entry = {"hooks": [{"type": "command", "command": cmd, "async": True}]}
     if event == "Notification":
-        entry["matcher"] = "*"
+        entry["matcher"] = NOTIFY_MATCHER
     h.setdefault(event, []).append(entry); added.append(event)
 
 json.dump(d, open(cfg, "w"), indent=2); open(cfg, "a").write("\n")
 json.load(open(cfg))  # re-validate
-print(f"  claude: migrated {migrated} legacy ref(s); added events: {added or 'none (already present)'}")
+print(f"  claude: migrated {migrated} legacy ref(s); retuned {retuned} Notification matcher(s); added events: {added or 'none (already present)'}")
 PY
 }
 
