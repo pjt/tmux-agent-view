@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # tmux-agent-view — list AI agent panes across all tmux sessions and jump to them.
-# bash 3.2 compatible (macOS system bash). No daemon, no state, no hooks.
+# bash 3.2 compatible (macOS system bash). Pane status comes from hook-written
+# state files (see agent-hook.sh); no screen scraping.
 
 set -u
 SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
@@ -10,8 +11,8 @@ SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 # kimi-webbridge daemon that shares the "kimi" prefix.
 DEFAULT_PATTERN='claude|codex|opencode|aider|kimi(-code)?([^-]|$)'
 
-# Per-pane state written by agent-hook.sh (hook-driven). Read in preference to
-# scraping the screen; kept in sync with agent-hook.sh's STATE_DIR.
+# Per-pane state written by agent-hook.sh (hook-driven), the sole source of
+# each pane's status. Kept in sync with agent-hook.sh's STATE_DIR.
 STATE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/tmux-agent-view"
 
 opt() { # opt <@option> <default>
@@ -108,45 +109,16 @@ scan() {
   done | sort -t '	' -k2,2n -k9,9nr -k10,10n -k5,5n
 }
 
-# Prefer the hook-written state file (agent-hook.sh); it is authoritative and
-# cheap. Fall back to screen scraping for panes with no state yet — an agent
-# started before the hooks were installed, or a CLI without hook support.
+# State is hook-driven: agent-hook.sh writes a per-pane state file on each
+# lifecycle event. A pane with no state file yet — an agent started before the
+# hooks were installed, or a CLI without hook support — reads as idle.
 pane_status() { # <pane_id> -> needs_input|failed|stopped|working|completed|idle
   local sf="$STATE_DIR/$1.state" st
   if [ -f "$sf" ]; then
     IFS='	' read -r st _ < "$sf" 2>/dev/null
     if [ -n "${st:-}" ]; then printf '%s\n' "$st"; return; fi
   fi
-  scrape_status "$1"
-}
-
-# Six states, mirroring Claude Code's agent view, from screen content alone.
-# The marker CLOSEST TO THE BOTTOM of the screen wins (later lines describe
-# the most recent event), so a permission dialog below a spinner reads as
-# needs_input, and a spinner below an old turn summary reads as working.
-scrape_status() { # <pane_id> -> needs_input|failed|stopped|working|completed|idle
-  tmux capture-pane -p -t "$1" 2>/dev/null | tail -n 30 | awk '
-    # permission dialog, plan approval, or a numbered question (AskUserQuestion).
-    # Claude Code uses "❯ 1."; Kimi Code uses "▶ 1." with Approve/Reject options.
-    /Do you want|Would you like|[❯▶] [0-9]+\.|Approve for this session|Reject with feedback/ \
-                                                             { s = "needs_input"; next }
-    # turn aborted by an API/tool error
-    /API Error|Request timed out|OAuth token|Credit balance|overloaded_error|rate.?limit/ \
-                                                             { s = "failed"; next }
-    # user pressed esc/ctrl-c mid-turn
-    /⎿ *Interrupted|Interrupted by user/                     { s = "stopped"; next }
-    # generating / running tools. Claude Code: spinner word + "… (" or the
-    # interrupt hint. Kimi Code: a braille spinner + "thinking…/working…" or a
-    # moon-phase spinner "🌒 · ".
-    /esc to interrupt|(✻|✽|✶|✳|✢|✺|·) .*… ?\(/               { s = "working"; next }
-    /(⠋|⠙|⠹|⠸|⠼|⠴|⠦|⠧|⠇|⠏) (thinking|working)\.\.\./       { s = "working"; next }
-    /(🌑|🌒|🌓|🌔|🌕|🌖|🌗|🌘) ·/                            { s = "working"; next }
-    # turn finished: "✻ Worked for 1m 5s" summary or a "※ recap:" line.
-    # !/…/ keeps spinner lines like "(… · thought for 8s)" out of here.
-    (/(✻|✽|✶|✳|✢|✺) [A-Za-z]+ for [0-9]/ && !/…/) || /※ recap:/ \
-                                                             { s = "completed"; next }
-    END { print (s != "" ? s : "idle") }
-  '
+  printf 'idle\n'
 }
 
 # ---------------------------------------------------------------- rendering
