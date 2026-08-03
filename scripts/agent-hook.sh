@@ -39,11 +39,16 @@ session_id="$(field session_id)"
 message="$(field message)"
 
 # ---------------------------------------------------------------- event → state
-# Only turn-boundary events are registered, so states arrive in order and we
-# never thrash the file on every tool call. Unmapped events are ignored.
+# Mostly turn-boundary events, so states arrive in order without thrashing the
+# file. The one exception is PreToolUse: Claude Code has no hook that fires when
+# a permission/question prompt is answered and work resumes (answering isn't a
+# UserPromptSubmit — it's a tool response, not a new user message), so the pane
+# would otherwise stay stuck on needs_input until the whole turn ends at Stop.
+# The next tool call is the earliest reliable signal that work has resumed.
+# Unmapped events are ignored.
 status=''
 case "$event" in
-  UserPromptSubmit)            status='working' ;;
+  UserPromptSubmit|PreToolUse)  status='working' ;;
   Notification|PermissionRequest) status='needs_input' ;;
   Stop)                        status='completed' ;;
   StopFailure)                 status='failed' ;;      # Kimi only

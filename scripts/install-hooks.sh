@@ -55,8 +55,10 @@ for grp in h.get("Notification", []):
 
 # 2b) ensure state-driving events are registered (async, state-only for the
 #    non-attention ones — the script itself decides whether to notify)
+# PreToolUse is the earliest signal that work resumed after a permission/
+# question prompt was answered — there is no dedicated "answered" hook.
 added = []
-for event in ("Stop", "Notification", "UserPromptSubmit", "SessionEnd"):
+for event in ("Stop", "Notification", "UserPromptSubmit", "PreToolUse", "SessionEnd"):
     if has_ours(event):
         continue
     entry = {"hooks": [{"type": "command", "command": cmd, "async": True}]}

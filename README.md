@@ -56,7 +56,7 @@ navigation — an agent spamming output never jumps the queue.
 | `▲ needs input` | waiting on a permission decision or a question | `Notification` / `PermissionRequest` · `Do you want …` / a numbered `❯ 1.` choice |
 | `✖ failed` | turn ended with an API/tool error | `StopFailure` (Kimi) · `API Error`, rate limit / timeout / auth messages |
 | `■ stopped` | you interrupted it (esc / ctrl-c) | `Interrupt` (Kimi) · `Interrupted` marker |
-| `✻ working` | generating or running tools | `UserPromptSubmit` · spinner line `✻ Doing… (…)` / `esc to interrupt` |
+| `✻ working` | generating or running tools | `UserPromptSubmit` / `PreToolUse` · spinner line `✻ Doing… (…)` / `esc to interrupt` |
 | `✔ completed` | last turn finished normally | `Stop` · turn summary `✻ Worked for 1m 5s` / `※ recap:` line |
 | `○ idle` | sitting at the prompt | `SessionStart` · none of the above |
 
