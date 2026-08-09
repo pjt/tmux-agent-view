@@ -94,7 +94,8 @@ scan() {
   ' |
   while IFS='	' read -r pane_id session win_idx win_name title path attached stack; do
     local status rank
-    status="$(pane_status "$pane_id")"
+    pane_status "$pane_id"
+    status="$PANE_STATUS_RESULT"
     case "$status" in
       needs_input) rank=0 ;;
       failed)      rank=1 ;;
@@ -112,7 +113,7 @@ scan() {
 # State is hook-driven: agent-hook.sh writes a per-pane state file on each
 # lifecycle event. A pane with no state file yet — an agent started before the
 # hooks were installed, or a CLI without hook support — reads as idle.
-pane_status() { # <pane_id> -> needs_input|failed|stopped|working|completed|idle
+pane_status() { # <pane_id> -> sets PANE_STATUS_RESULT
   local sf="$STATE_DIR/$1.state" st
   if [ -f "$sf" ]; then
     IFS='	' read -r st _ < "$sf" 2>/dev/null
@@ -130,57 +131,114 @@ pane_status() { # <pane_id> -> needs_input|failed|stopped|working|completed|idle
           [ -n "$mt" ] && [ -n "$now" ] && [ "$((now - mt))" -ge "$ttl" ] && st='idle'
         fi
       fi
-      printf '%s\n' "$st"; return
+      PANE_STATUS_RESULT="$st"
+      return 0
     fi
   fi
-  printf 'idle\n'
+  PANE_STATUS_RESULT='idle'
 }
 
 # ---------------------------------------------------------------- rendering
 
 # Display width: non-ASCII counts as 2 columns, except common narrow
 # punctuation/symbols (…·—–‘’“”) which render 1 column wide.
-dwidth() {
+dwidth() { # <str> -> sets DWIDTH_RESULT
   local wide="${1//[[:ascii:]]/}"
   wide="${wide//[…·—–‘’“”]/}"
-  printf '%s' "$(( ${#1} + ${#wide} ))"
+  DWIDTH_RESULT="$(( ${#1} + ${#wide} ))"
 }
 
-# Truncate to <width> display columns (… suffix) and pad with spaces.
-fit() { # <str> <width>
+# Truncate to <width> display columns (… suffix), pad, and set FIT_RESULT.
+fit() { # <str> <width> -> sets FIT_RESULT
   local s="$1" max="$2" w
-  w="$(dwidth "$s")"
+  dwidth "$s"
+  w="$DWIDTH_RESULT"
   if [ "$w" -gt "$max" ]; then
-    while s="${s%?}"; [ "$(dwidth "$s")" -gt "$((max - 1))" ]; do :; done
+    while s="${s%?}"; do
+      dwidth "$s"
+      [ "$DWIDTH_RESULT" -le "$((max - 1))" ] && break
+    done
     s="${s}…"
-    w="$(dwidth "$s")"
+    dwidth "$s"
+    w="$DWIDTH_RESULT"
   fi
-  printf '%s%*s' "$s" "$((max - w))" ''
+  printf -v FIT_RESULT '%s%*s' "$s" "$((max - w))" ''
 }
 
-style() { # <status> -> "icon<TAB>label<TAB>ansi color"
+style() { # <status> -> sets STYLE_ICON, STYLE_LABEL, and STYLE_COLOR
   case "$1" in
-    needs_input) printf '▲\tneeds input\t\033[1;33m' ;;
-    failed)      printf '✖\tfailed\t\033[1;31m' ;;
-    stopped)     printf '■\tstopped\t\033[1;35m' ;;
-    working)     printf '✻\tworking\t\033[1;36m' ;;
-    completed)   printf '✔\tcompleted\t\033[1;32m' ;;
-    *)           printf '○\tidle\t\033[2m' ;;
+    needs_input) STYLE_ICON='▲'; STYLE_LABEL='needs input'; STYLE_COLOR=$'\033[1;33m' ;;
+    failed)      STYLE_ICON='✖'; STYLE_LABEL='failed';      STYLE_COLOR=$'\033[1;31m' ;;
+    stopped)     STYLE_ICON='■'; STYLE_LABEL='stopped';     STYLE_COLOR=$'\033[1;35m' ;;
+    working)     STYLE_ICON='✻'; STYLE_LABEL='working';     STYLE_COLOR=$'\033[1;36m' ;;
+    completed)   STYLE_ICON='✔'; STYLE_LABEL='completed';   STYLE_COLOR=$'\033[1;32m' ;;
+    *)           STYLE_ICON='○'; STYLE_LABEL='idle';        STYLE_COLOR=$'\033[2m' ;;
   esac
 }
 
-# Colored fzf lines: "pane_id \t <display>", grouped under one header per state.
-# Header lines have an empty pane_id field; picker() skips them on enter.
-# AGENT_JUMP_CURRENT (optional) marks the pane the popup was opened from.
-list() {
+# Read the current branch from Git's HEAD metadata instead of spawning git for
+# every pane. Linked worktrees expose their private gitdir through a .git file,
+# so handle both directory and file forms. The tiny indexed-array cache (Bash
+# 3.2 has no associative arrays) avoids repeating even that directory walk.
+branch_for_path() { # <path> -> sets BRANCH_RESULT
+  local path="$1" i=0 dir gitdir='' head
+  while [ "$i" -lt "${#BRANCH_PATHS[@]}" ]; do
+    if [ "${BRANCH_PATHS[$i]}" = "$path" ]; then
+      BRANCH_RESULT="${BRANCH_NAMES[$i]}"
+      return 0
+    fi
+    i=$((i + 1))
+  done
+
+  BRANCH_RESULT=''
+  dir="$path"
+  while [ -n "$dir" ]; do
+    if [ -d "$dir/.git" ]; then
+      gitdir="$dir/.git"
+      break
+    fi
+    if [ -f "$dir/.git" ]; then
+      IFS= read -r gitdir < "$dir/.git" 2>/dev/null || gitdir=''
+      case "$gitdir" in
+        'gitdir: '*) gitdir="${gitdir#gitdir: }" ;;
+        *) gitdir='' ;;
+      esac
+      case "$gitdir" in
+        /* | '') ;;
+        *) gitdir="$dir/$gitdir" ;;
+      esac
+      break
+    fi
+    [ "$dir" = '/' ] && break
+    dir="${dir%/*}"
+    [ -n "$dir" ] || dir='/'
+  done
+
+  if [ -n "$gitdir" ] && IFS= read -r head < "$gitdir/HEAD" 2>/dev/null; then
+    case "$head" in
+      'ref: refs/heads/'*) BRANCH_RESULT="${head#ref: refs/heads/}" ;;
+      ?*)                  BRANCH_RESULT='HEAD' ;;
+    esac
+  fi
+  BRANCH_PATHS[${#BRANCH_PATHS[@]}]="$path"
+  BRANCH_NAMES[${#BRANCH_NAMES[@]}]="$BRANCH_RESULT"
+}
+
+# Render scan rows as colored fzf lines: "pane_id \t <display>", grouped under
+# one header per state. Header lines have an empty pane_id field; picker() skips
+# them on enter. AGENT_JUMP_CURRENT marks the pane the popup was opened from.
+render_list() {
   local prev_status='' host hshort
+  BRANCH_PATHS=()
+  BRANCH_NAMES=()
   host="$(hostname 2>/dev/null)"   # e.g. PeixiangdeMacBook-Pro.local
   hshort="${host%%.*}"             # e.g. PeixiangdeMacBook-Pro
-  scan | while IFS='	' read -r pane_id rank status session win_idx win_name title path attached stack; do
-    local icon label color branch here
-    IFS='	' read -r icon label color <<EOF
-$(style "$status")
-EOF
+  while IFS='	' read -r pane_id rank status session win_idx win_name title path attached stack; do
+    local icon label color branch here session_col title_col
+    style "$status"
+    icon="$STYLE_ICON"
+    label="$STYLE_LABEL"
+    color="$STYLE_COLOR"
 
     if [ "$status" != "$prev_status" ]; then
       [ -n "$prev_status" ] && printf '\t\n'
@@ -195,14 +253,23 @@ EOF
       *@*:* | "$host" | "$hshort") title="$win_name" ;;
     esac
 
-    branch="$(git -C "$path" rev-parse --abbrev-ref HEAD 2>/dev/null)"
+    branch_for_path "$path"
+    branch="$BRANCH_RESULT"
     here='  '; [ "$pane_id" = "${AGENT_JUMP_CURRENT:-}" ] && here='◂ '
+    fit "$session:$win_idx" 14
+    session_col="$FIT_RESULT"
+    fit "$title" 34
+    title_col="$FIT_RESULT"
 
     printf '%s\t%s%b%s\033[0m  \033[1m%s\033[0m  %s  \033[2m%s%s\033[0m\n' \
       "$pane_id" "$here" "$color" "$icon" \
-      "$(fit "$session:$win_idx" 14)" "$(fit "$title" 34)" \
+      "$session_col" "$title_col" \
       "${branch:+⎇ $branch · }" "${path/#"$HOME"/\~}"
   done
+}
+
+list() {
+  scan | render_list
 }
 
 counts() { # -> "needs_input failed stopped working completed idle"
@@ -231,7 +298,7 @@ EOF
 # ---------------------------------------------------------------- picker
 
 picker() {
-  local lines sel pane_id
+  local rows sel pane_id
   if ! command -v fzf >/dev/null 2>&1; then
     printf '\n   tmux-agent-view needs fzf:  brew install fzf\n\n   press any key to close'
     read -rsn1
@@ -239,16 +306,19 @@ picker() {
   fi
 
   while :; do
-    lines="$(list)"
+    # Buffer only the fast discovery phase so we can preserve the friendly
+    # empty state. Rendering then streams into fzf, letting the picker appear
+    # before branch/path decoration for every row has finished.
+    rows="$(scan)"
 
-    if [ -z "$lines" ]; then
+    if [ -z "$rows" ]; then
       printf '\n   No agent panes found.\n\n   (pattern: %s)\n\n   press any key to close' \
         "$(opt @agent-view-pattern "$DEFAULT_PATTERN")"
       read -rsn1
       return 0
     fi
 
-    sel="$(printf '%s\n' "$lines" | fzf \
+    sel="$(printf '%s\n' "$rows" | render_list | fzf \
       --ansi --reverse --no-info --cycle \
       --delimiter='\t' --with-nth=2.. \
       --prompt='  ' --pointer='▌' \
