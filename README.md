@@ -54,11 +54,11 @@ navigation — an agent spamming output never jumps the queue.
 | state | meaning | hook event → / screen fallback matches |
 |---|---|---|
 | `▲ needs input` | waiting on a permission decision or a question | `Notification` / `PermissionRequest` · `Do you want …` / a numbered `❯ 1.` choice |
-| `✖ failed` | turn ended with an API/tool error | `StopFailure` (Kimi) · `API Error`, rate limit / timeout / auth messages |
-| `■ stopped` | you interrupted it (esc / ctrl-c) | `Interrupt` (Kimi) · `Interrupted` marker |
-| `✻ working` | generating or running tools | `UserPromptSubmit` / `PreToolUse` · spinner line `✻ Doing… (…)` / `esc to interrupt` |
-| `✔ completed` | last turn finished normally | `Stop` · turn summary `✻ Worked for 1m 5s` / `※ recap:` line |
-| `○ idle` | sitting at the prompt | `SessionStart` · none of the above |
+| `✖ failed` | turn ended with an API/tool error | `StopFailure` / Pi assistant `stopReason: error` · `API Error`, rate limit / timeout / auth messages |
+| `■ stopped` | you interrupted it (esc / ctrl-c) | `Interrupt` / Pi assistant `stopReason: aborted` · `Interrupted` marker |
+| `✻ working` | generating or running tools | `UserPromptSubmit` / `PreToolUse` / Pi `agent_start` · spinner line `✻ Doing… (…)` / `esc to interrupt` |
+| `✔ completed` | last turn finished normally | `Stop` / Pi `agent_settled` · turn summary `✻ Worked for 1m 5s` / `※ recap:` line |
+| `○ idle` | sitting at the prompt | `SessionStart` / Pi `session_start` · none of the above |
 
 In the screen-scrape fallback, the marker closest to the bottom of the screen wins, so a
 permission dialog below a spinner reads as *needs input*, and a fresh spinner below an old
@@ -67,7 +67,7 @@ turn summary reads as *working*.
 ## Features
 
 - **All sessions, one picker** — every pane running Claude Code / Codex / OpenCode /
-  aider / Kimi Code, grouped by state, agents that need you first
+  aider / Kimi Code / Pi, grouped by state, agents that need you first
 - **Live preview** — the right half of the picker shows the selected agent's screen,
   in color, as it is right now
 - **Context at a glance** — conversation topic (from the pane title Claude Code sets),
@@ -91,6 +91,7 @@ backed up first; re-running is safe and idempotent):
 | Claude Code | `~/.claude/settings.json` |
 | Codex | `~/.codex/hooks.json` |
 | Kimi Code | `~/.kimi-code/config.toml` |
+| Pi | `~/.pi/agent/extensions/tmux-agent-view.ts` |
 
 On each turn boundary the hook writes the agent's state to
 `${XDG_CACHE_HOME:-~/.cache}/tmux-agent-view/<pane>.state`, which the picker reads instead
@@ -101,6 +102,11 @@ or older than a day). The event → state mapping is in the
 **Codex only:** Codex requires you to *trust* hooks. The first time you start Codex
 interactively after installing, it prompts once to trust `agent-hook.sh` — accept it.
 Sessions already running when you install won't pick up the hooks until restarted.
+
+**Pi only:** Pi support is installed as a global extension. It uses `agent_settled`
+rather than `agent_end`, so automatic retries, compaction, and queued follow-ups do not
+produce premature completion notifications. Pi has no built-in permission prompt, so
+the adapter reports working, completed, failed, stopped, and idle states.
 
 **Clickable notifications (macOS):** when an agent needs input or finishes, the hook also
 sends a desktop banner — **clicking it focuses your terminal and jumps straight to that
@@ -137,7 +143,7 @@ Set in `~/.tmux.conf` before the plugin line:
 |---|---|---|
 | `@agent-view-key` | `a` | key after prefix that opens the picker |
 | `@agent-view-status` | `on` | prepend the agent summary to `status-right` |
-| `@agent-view-pattern` | `claude\|codex\|opencode\|aider\|kimi(-code)?([^-]\|$)` | regex matched against pane child processes |
+| `@agent-view-pattern` | `claude\|codex\|opencode\|aider\|kimi(-code)?([^-]\|$)\|pi-coding-agent\|(^\|/)pi$` | regex matched against pane child processes |
 | `@agent-view-width` | `90%` | popup width |
 | `@agent-view-height` | `75%` | popup height |
 
@@ -168,7 +174,7 @@ set -g @agent-view-pattern 'claude|goose'
    back to `tmux capture-pane` screen heuristics — see [Agent states](#agent-states) above.
 3. Jumping is plain `switch-client` + `select-window` + `select-pane`.
 
-With hooks installed, state is reported directly by Claude Code, Codex, and Kimi Code. The
+With hooks installed, state is reported directly by Claude Code, Codex, Kimi Code, and Pi. The
 screen-scrape fallback is tuned for Claude Code; unhooked agents of other kinds are still
 detected and listed but may show as idle.
 

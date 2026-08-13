@@ -9,7 +9,10 @@ SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 # The Kimi Code CLI runs as argv0 "kimi" (older sessions) or "kimi-code"
 # (newer ones). `kimi(-code)?([^-]|$)` matches both while excluding the
 # kimi-webbridge daemon that shares the "kimi" prefix.
-DEFAULT_PATTERN='claude|codex|opencode|aider|kimi(-code)?([^-]|$)'
+# Pi normally appears as `node .../pi-coding-agent/dist/cli.js`; `(^|/)pi$`
+# covers launchers that preserve `pi` as argv0. scan() applies the pattern to
+# argv0 separately so the anchored alternative cannot match an unrelated arg.
+DEFAULT_PATTERN='claude|codex|opencode|aider|kimi(-code)?([^-]|$)|pi-coding-agent|(^|/)pi$'
 
 # Per-pane state written by agent-hook.sh (hook-driven), the sole source of
 # each pane's status. Kept in sync with agent-hook.sh's STATE_DIR.
@@ -73,6 +76,7 @@ scan() {
         # keep only the first two tokens (executable + first arg) for matching,
         # so `nvim CLAUDE.md` does not false-positive but
         # `node /x/claude/cli.js` and `/x/claude/versions/2.1.198 --flag` do.
+        arg0[pid] = f[3]
         head = f[3] (f[4] != "" ? " " f[4] : "")
         exe[pid] = head
       }
@@ -83,7 +87,8 @@ scan() {
       n = 1; queue[1] = $2; found = 0
       for (i = 1; i <= n && !found; i++) {
         p = queue[i]
-        if (i > 1 && tolower(exe[p]) ~ tolower(pat)) { found = 1; break }
+        if (i > 1 && (tolower(exe[p]) ~ tolower(pat) ||
+                      tolower(arg0[p]) ~ tolower(pat))) { found = 1; break }
         m = split(kids[p], ch, " ")
         for (j = 1; j <= m; j++) if (ch[j] != "") queue[++n] = ch[j]
         if (n > 512) break

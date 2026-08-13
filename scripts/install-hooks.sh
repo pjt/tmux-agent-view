@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # tmux-agent-view — register agent-hook.sh as a lifecycle hook in whichever of
-# Claude Code / Codex / Kimi Code are installed. Idempotent: safe to re-run.
+# Claude Code / Codex / Kimi Code / Pi are installed. Idempotent: safe to re-run.
 # Every config it touches is backed up first (<file>.bak.<timestamp>).
 #
 #   scripts/install-hooks.sh            # register for all detected CLIs
@@ -11,6 +11,7 @@
 set -u
 DIR="$(cd "$(dirname "$0")" && pwd)"
 HOOK="$DIR/agent-hook.sh"
+PI_EXTENSION="$DIR/pi-extension.ts"
 TS="$(date +%Y%m%d-%H%M%S)"
 
 backup() { [ -f "$1" ] && cp "$1" "$1.bak.$TS" && echo "  backed up $1 -> $1.bak.$TS"; }
@@ -137,9 +138,64 @@ install_kimi() {
   fi
 }
 
+# ---------------------------------------------------------------- Pi
+install_pi() {
+  local agent_dir="$HOME/.pi/agent"
+  local extension_dir="$agent_dir/extensions"
+  local dst="$extension_dir/tmux-agent-view.ts"
+  local tmp
+
+  if [ ! -d "$agent_dir" ] && ! command -v pi >/dev/null 2>&1; then
+    echo "pi: not installed — skipped"
+    return
+  fi
+  command -v python3 >/dev/null 2>&1 || { echo "pi: needs python3 — skipped"; return; }
+  [ -f "$PI_EXTENSION" ] || { echo "pi: missing $PI_EXTENSION — skipped"; return; }
+  mkdir -p "$extension_dir" 2>/dev/null || {
+    echo "pi: cannot create $extension_dir — skipped"
+    return
+  }
+  tmp="$(mktemp "$extension_dir/.tmux-agent-view.XXXXXX")" || {
+    echo "pi: cannot create temporary extension — skipped"
+    return
+  }
+
+  python3 - "$PI_EXTENSION" "$tmp" "$HOOK" <<'PY'
+import json, sys
+
+src, dst, hook = sys.argv[1:]
+text = open(src).read()
+placeholder = '"__AGENT_VIEW_HOOK__"'
+if text.count(placeholder) != 1:
+    raise SystemExit("unexpected Pi extension hook placeholder count")
+text = text.replace(placeholder, json.dumps(hook))
+with open(dst, "w") as f:
+    f.write(text)
+PY
+  if [ "$?" -ne 0 ]; then
+    rm -f "$tmp" 2>/dev/null
+    echo "pi: could not render extension — skipped"
+    return
+  fi
+
+  if [ -f "$dst" ] && cmp -s "$tmp" "$dst"; then
+    rm -f "$tmp" 2>/dev/null
+    echo "  pi: already registered — skipped"
+    return
+  fi
+  backup "$dst"
+  if mv -f "$tmp" "$dst" 2>/dev/null; then
+    echo "  pi: installed extension -> $dst"
+  else
+    rm -f "$tmp" 2>/dev/null
+    echo "pi: could not install $dst — skipped"
+  fi
+}
+
 echo "Registering agent-hook.sh: $HOOK"
 [ -x "$HOOK" ] || chmod +x "$HOOK" 2>/dev/null
 install_claude
 install_codex
 install_kimi
+install_pi
 echo "Done."

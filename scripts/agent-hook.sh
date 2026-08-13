@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # tmux-agent-view — unified agent hook.
 #
-# Registered as a lifecycle hook in Claude Code / Codex / Kimi Code. On each
+# Registered as a lifecycle hook in Claude Code / Codex / Kimi Code / Pi. On each
 # event it (1) writes the agent's current state to a per-pane state file that
 # agent-view.sh reads instead of scraping the screen, and (2) on the events
 # that need you (input/done/failed/stopped) sends a clickable macOS banner that
 # jumps to the pane.
 #
 # Usage (registered by install-hooks.sh):
-#   agent-hook.sh <kind>        # kind = claude | codex | kimi
+#   agent-hook.sh <kind>        # kind = claude | codex | kimi | pi
 # Reads the hook event JSON on stdin. Exits silently when not inside tmux.
 #
 # State file: $XDG_CACHE_HOME/tmux-agent-view/<pane_id>.state  (default ~/.cache)
@@ -51,8 +51,8 @@ case "$event" in
   UserPromptSubmit|PreToolUse)  status='working' ;;
   Notification|PermissionRequest) status='needs_input' ;;
   Stop)                        status='completed' ;;
-  StopFailure)                 status='failed' ;;      # Kimi only
-  Interrupt)                   status='stopped' ;;     # Kimi only
+  StopFailure)                 status='failed' ;;      # Kimi / Pi adapter
+  Interrupt)                   status='stopped' ;;     # Kimi / Pi adapter
   SessionStart)                status='idle' ;;
   SessionEnd)                  rm -f "$statefile" 2>/dev/null; exit 0 ;;
   *)                           exit 0 ;;
