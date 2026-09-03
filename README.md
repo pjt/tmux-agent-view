@@ -5,27 +5,23 @@ see every AI agent across all your sessions and jump to any of them in one keyst
 Zero configuration.
 
 ```
-┌───────────────────────── ✻ agents ──────────────────────────┐
-│  enter jump · ctrl-r refresh · esc close                 │
-│ ▲ needs input                                            │
-│▌  ▲  proj-a:1   claude   fix login bug       ⎇ fix/login │
-│ ✻ working                                                │
-│   ✻  proj-b:0   claude   refactor api        ⎇ main      │
-│   ✻  proj-b:2   codex    write e2e tests     ⎇ tests     │
-│ ✔ completed                                              │
-│   ✔  proj-c:1   claude   migrate db schema   ⎇ main      │
-│ ○ idle                                                   │
-│◂  ○  proj-c:3   shell    …                               │
-├──────────────────────────────────────────────────────────┤
-│ (live preview of the selected agent's screen)            │
-└──────────────────────────────────────────────────────────┘
+┌────────────────────────────── ✻ agents ───────────────────────────────┐
+│  enter jump · ctrl-r refresh · esc close                           │
+│▌  ▲ needs input  proj-a:1   claude   fix login bug     ⎇ fix/login │
+│   ✻ working      proj-b:0   claude   refactor api      ⎇ main      │
+│   ✻ working      proj-b:2   codex    write e2e tests   ⎇ tests     │
+│   ✔ completed    proj-c:1   claude   migrate db schema ⎇ main      │
+│◂  ○ idle         proj-c:3   shell    …                             │
+├────────────────────────────────────────────────────────────────────┤
+│ (live preview of the selected agent's screen)                      │
+└────────────────────────────────────────────────────────────────────┘
 ```
 
 You run one tmux session per project, each window split into an agent pane plus
 nvim/shell panes. `prefix + a` pops up a picker of every agent pane in every session —
-grouped by live status, with git branch, conversation topic, and a live preview of each
-agent's screen. Press enter (or click) and tmux switches session → window → pane. Your
-window layouts stay exactly as they were.
+one line per agent pane, sorted by live status, with git branch, conversation topic, and
+a live preview of each agent's screen. Up/down move agent-to-agent; press enter (or click)
+and tmux switches session → window → pane. Your window layouts stay exactly as they were.
 
 ## Why not a sidebar?
 
@@ -48,8 +44,9 @@ Six states, mirroring [Claude Code's agent view](https://code.claude.com/docs/en
 With [hooks](#hooks--accurate-state--clickable-notifications) installed, each agent CLI
 reports its own state as it changes — accurate, instant, and the only way to catch agents
 (like Kimi Code) that leave no "done" marker on screen. Without hooks, state is read from
-the pane's screen content as a fallback. The picker groups agents by state; states that
-need you sort first. Within a group, agents are ordered by your most recent visits (LRU):
+the pane's screen content as a fallback. The picker shows one line per agent, sorted by state
+(states that need you first) with the state as an inline label; within a state, agents are
+ordered by your most recent visits (LRU):
 tmux's session attach times and per-session window stacks, both driven only by your
 navigation — an agent spamming output never jumps the queue.
 
@@ -69,8 +66,8 @@ turn summary reads as *working*.
 ## Features
 
 - **All sessions, one picker** — every pane running Claude Code / Codex / OpenCode /
-  aider / Kimi Code / Pi, grouped by state, agents that need you first
-- **Live preview** — the right half of the picker shows the selected agent's screen,
+  aider / Kimi Code / Pi, one line each, sorted by state with agents that need you first
+- **Live preview** — the bottom of the picker shows the selected agent's screen,
   in color, as it is right now
 - **Context at a glance** — window name, conversation topic (from the pane title
   Claude Code sets), git branch of the pane's cwd, working directory; `◂` marks where

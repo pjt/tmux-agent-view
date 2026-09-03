@@ -235,27 +235,24 @@ branch_for_path() { # <path> -> sets BRANCH_RESULT
   BRANCH_NAMES[${#BRANCH_NAMES[@]}]="$BRANCH_RESULT"
 }
 
-# Render scan rows as colored fzf lines: "pane_id \t <display>", grouped under
-# one header per state. Header lines have an empty pane_id field; picker() skips
-# them on enter. AGENT_JUMP_CURRENT marks the pane the popup was opened from.
+# Render scan rows as colored fzf lines: "pane_id \t <display>", exactly one
+# line per agent pane. State is shown inline as a fixed-width label column
+# (rather than as group headers) so every fzf line is a selectable agent — this
+# makes the picker's up/down move agent-to-agent instead of stepping onto
+# headers/blank separators. Rows stay grouped visually via the rank sort in
+# scan(). AGENT_JUMP_CURRENT marks the pane the popup was opened from.
 render_list() {
-  local prev_status='' host hshort
+  local host hshort
   BRANCH_PATHS=()
   BRANCH_NAMES=()
   host="$(hostname 2>/dev/null)"   # e.g. PeixiangdeMacBook-Pro.local
   hshort="${host%%.*}"             # e.g. PeixiangdeMacBook-Pro
   while IFS='	' read -r pane_id rank status session win_idx win_name title path attached stack; do
-    local icon label color branch here session_col winname_col title_col
+    local icon label color branch here session_col winname_col title_col label_col
     style "$status"
     icon="$STYLE_ICON"
     label="$STYLE_LABEL"
     color="$STYLE_COLOR"
-
-    if [ "$status" != "$prev_status" ]; then
-      [ -n "$prev_status" ] && printf '\t\n'
-      printf '\t%b%s %s\033[0m\n' "$color" "$icon" "$label"
-      prev_status="$status"
-    fi
 
     # Claude Code sets pane_title to the conversation topic; a plain shell
     # leaves the OS default — "user@host: path" or a bare hostname — which
@@ -268,6 +265,8 @@ render_list() {
     branch_for_path "$path"
     branch="$BRANCH_RESULT"
     here='  '; [ "$pane_id" = "${AGENT_JUMP_CURRENT:-}" ] && here='◂ '
+    # Widest label is "needs input" (11); pad so the following columns align.
+    printf -v label_col '%-11s' "$label"
     fit "$session:$win_idx" 14
     session_col="$FIT_RESULT"
     fit "$win_name" 14
@@ -275,8 +274,8 @@ render_list() {
     fit "$title" 50
     title_col="$FIT_RESULT"
 
-    printf '%s\t%s%b%s\033[0m  \033[1m%s\033[0m  %s  %s  \033[2m%s%s\033[0m\n' \
-      "$pane_id" "$here" "$color" "$icon" \
+    printf '%s\t%s%b%s %s\033[0m  \033[1m%s\033[0m  %s  %s  \033[2m%s%s\033[0m\n' \
+      "$pane_id" "$here" "$color" "$icon" "$label_col" \
       "$session_col" "$winname_col" "$title_col" \
       "${branch:+⎇ $branch · }" "${path/#"$HOME"/\~}"
   done
@@ -319,37 +318,33 @@ picker() {
     return 0
   fi
 
-  while :; do
-    # Buffer only the fast discovery phase so we can preserve the friendly
-    # empty state. Rendering then streams into fzf, letting the picker appear
-    # before branch/path decoration for every row has finished.
-    rows="$(scan)"
+  # Buffer only the fast discovery phase so we can preserve the friendly empty
+  # state. Rendering then streams into fzf, letting the picker appear before
+  # branch/path decoration for every row has finished.
+  rows="$(scan)"
 
-    if [ -z "$rows" ]; then
-      printf '\n   No agent panes found.\n\n   (pattern: %s)\n\n   press any key to close' \
-        "$(opt @agent-view-pattern "$DEFAULT_PATTERN")"
-      read -rsn1
-      return 0
-    fi
+  if [ -z "$rows" ]; then
+    printf '\n   No agent panes found.\n\n   (pattern: %s)\n\n   press any key to close' \
+      "$(opt @agent-view-pattern "$DEFAULT_PATTERN")"
+    read -rsn1
+    return 0
+  fi
 
-    sel="$(printf '%s\n' "$rows" | render_list | fzf \
-      --ansi --reverse --no-info --cycle \
-      --delimiter='\t' --with-nth=2.. \
-      --prompt='  ' --pointer='▌' \
-      --header='enter jump · ctrl-r refresh · esc close' \
-      --header-first \
-      --color='header:dim,pointer:cyan,hl:cyan,hl+:cyan,bg+:236,gutter:-1,border:240' \
-      --preview="tmux capture-pane -ep -t {1}" \
-      --preview-window='bottom,55%,border-top' \
-      --bind="ctrl-r:reload('$SELF' list)")" || return 0
+  # Every rendered line is exactly one agent pane (state is an inline column,
+  # not a header), so up/down move agent-to-agent and enter always jumps.
+  sel="$(printf '%s\n' "$rows" | render_list | fzf \
+    --ansi --reverse --no-info --cycle \
+    --delimiter='\t' --with-nth=2.. \
+    --prompt='  ' --pointer='▌' \
+    --header='enter jump · ctrl-r refresh · esc close' \
+    --header-first \
+    --color='header:dim,pointer:cyan,hl:cyan,hl+:cyan,bg+:236,gutter:-1,border:240' \
+    --preview="tmux capture-pane -ep -t {1}" \
+    --preview-window='bottom,55%,border-top' \
+    --bind="ctrl-r:reload('$SELF' list)")" || return 0
 
-    pane_id="${sel%%	*}"
-    if [ -n "$pane_id" ]; then
-      jump "$pane_id"
-      return 0
-    fi
-    # a group header / separator was selected — reopen the picker
-  done
+  pane_id="${sel%%	*}"
+  [ -n "$pane_id" ] && jump "$pane_id"
 }
 
 jump() { # <pane_id>
