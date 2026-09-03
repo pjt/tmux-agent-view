@@ -131,7 +131,13 @@ pane_status() { # <pane_id> -> sets PANE_STATUS_RESULT
         local ttl mt now
         ttl="$(opt @agent-view-completed-ttl 1800)"
         if [ "${ttl:-0}" -gt 0 ] 2>/dev/null; then
-          mt="$(stat -f %m "$sf" 2>/dev/null || stat -c %Y "$sf" 2>/dev/null)"
+          # GNU stat (-c %Y) first, BSD/macOS stat (-f %m) as fallback. The
+          # reverse order breaks on GNU/Linux: `stat -f %m` there means
+          # "filesystem status", which prints fs info to stdout AND exits 1, so
+          # the `||` fallback appends the real mtime to that text. `$((now-mt))`
+          # then parses the word "File" as a variable and, under `set -u`,
+          # aborts the whole scan whenever any completed state file exists.
+          mt="$(stat -c %Y "$sf" 2>/dev/null || stat -f %m "$sf" 2>/dev/null)"
           now="$(date +%s 2>/dev/null)"
           [ -n "$mt" ] && [ -n "$now" ] && [ "$((now - mt))" -ge "$ttl" ] && st='idle'
         fi
