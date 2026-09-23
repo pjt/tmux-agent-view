@@ -235,18 +235,64 @@ branch_for_path() { # <path> -> sets BRANCH_RESULT
   BRANCH_NAMES[${#BRANCH_NAMES[@]}]="$BRANCH_RESULT"
 }
 
+# Claude Code sets pane_title to the conversation topic; a plain shell leaves
+# the OS default — "user@host: path" or a bare hostname — which tells us
+# nothing. The window name is shown alongside it, so just blank a generic
+# title rather than duplicating the window name into it. -> sets CLEAN_TITLE
+clean_title() { # <title> <host> <hshort>
+  case "$1" in
+    *@*:* | "$2" | "$3") CLEAN_TITLE='' ;;
+    *)                   CLEAN_TITLE="$1" ;;
+  esac
+}
+
 # Render scan rows as colored fzf lines: "pane_id \t <display>", exactly one
 # line per agent pane. State is shown inline as a fixed-width label column
 # (rather than as group headers) so every fzf line is a selectable agent — this
 # makes the picker's up/down move agent-to-agent instead of stepping onto
 # headers/blank separators. Rows stay grouped visually via the rank sort in
 # scan(). AGENT_JUMP_CURRENT marks the pane the popup was opened from.
+#
+# session/window-name/title column widths are sized to content, not guessed:
+# pass 1 measures each column's widest value across every row, capped per
+# column so one long outlier can't dominate the layout. session and window
+# name then always get their full (capped) width — they're short, structured
+# identifiers, not worth truncating over. title is the free-text column, so
+# it absorbs whatever's left of @agent-view-columns-pct of the popup's width,
+# down to a floor of 10 and up to its own cap, and truncates with an ellipsis
+# via fit() when content doesn't fit. Pass 2 renders using the widths pass 1
+# settled on. Buffering the whole input first (rather than streaming
+# row-by-row) is what makes measuring content ahead of render possible;
+# picker() already buffers scan()'s output for the same reason.
 render_list() {
-  local host hshort
+  local host hshort buf pane_id rank status session win_idx win_name title path attached stack
+  local session_w=0 winname_w=0 title_w=0
+  local session_cap=20 winname_cap=28 title_cap=60
+  local popup_cols budget title_budget
   BRANCH_PATHS=()
   BRANCH_NAMES=()
   host="$(hostname 2>/dev/null)"   # e.g. PeixiangdeMacBook-Pro.local
   hshort="${host%%.*}"             # e.g. PeixiangdeMacBook-Pro
+
+  buf="$(cat)"
+  [ -z "$buf" ] && return 0
+
+  while IFS='	' read -r pane_id rank status session win_idx win_name title path attached stack; do
+    clean_title "$title" "$host" "$hshort"
+    dwidth "$session:$win_idx";  [ "$DWIDTH_RESULT" -gt "$session_w" ] && session_w="$DWIDTH_RESULT"
+    dwidth "$win_name";          [ "$DWIDTH_RESULT" -gt "$winname_w" ] && winname_w="$DWIDTH_RESULT"
+    dwidth "$CLEAN_TITLE";       [ "$DWIDTH_RESULT" -gt "$title_w" ]   && title_w="$DWIDTH_RESULT"
+  done <<<"$buf"
+  [ "$session_w" -gt "$session_cap" ] && session_w="$session_cap"
+  [ "$winname_w" -gt "$winname_cap" ] && winname_w="$winname_cap"
+  [ "$title_w" -gt "$title_cap" ] && title_w="$title_cap"
+
+  popup_cols="$(tput cols 2>/dev/null)"; popup_cols="${popup_cols:-100}"
+  budget=$(( popup_cols * $(opt @agent-view-columns-pct 60) / 100 ))
+  title_budget=$(( budget - session_w - winname_w ))
+  [ "$title_budget" -lt 10 ] && title_budget=10
+  [ "$title_w" -gt "$title_budget" ] && title_w="$title_budget"
+
   while IFS='	' read -r pane_id rank status session win_idx win_name title path attached stack; do
     local icon label color branch here session_col winname_col title_col label_col
     style "$status"
@@ -254,31 +300,26 @@ render_list() {
     label="$STYLE_LABEL"
     color="$STYLE_COLOR"
 
-    # Claude Code sets pane_title to the conversation topic; a plain shell
-    # leaves the OS default — "user@host: path" or a bare hostname — which
-    # tells us nothing. The window name is shown alongside it, so just blank
-    # a generic title rather than duplicating the window name into it.
-    case "$title" in
-      *@*:* | "$host" | "$hshort") title='' ;;
-    esac
+    clean_title "$title" "$host" "$hshort"
+    title="$CLEAN_TITLE"
 
     branch_for_path "$path"
     branch="$BRANCH_RESULT"
     here='  '; [ "$pane_id" = "${AGENT_JUMP_CURRENT:-}" ] && here='◂ '
     # Widest label is "needs input" (11); pad so the following columns align.
     printf -v label_col '%-11s' "$label"
-    fit "$session:$win_idx" 14
+    fit "$session:$win_idx" "$session_w"
     session_col="$FIT_RESULT"
-    fit "$win_name" 14
+    fit "$win_name" "$winname_w"
     winname_col="$FIT_RESULT"
-    fit "$title" 50
+    fit "$title" "$title_w"
     title_col="$FIT_RESULT"
 
     printf '%s\t%s%b%s %s\033[0m  \033[1m%s\033[0m  %s  %s  \033[2m%s%s\033[0m\n' \
       "$pane_id" "$here" "$color" "$icon" "$label_col" \
       "$session_col" "$winname_col" "$title_col" \
       "${branch:+⎇ $branch · }" "${path/#"$HOME"/\~}"
-  done
+  done <<<"$buf"
 }
 
 list() {
