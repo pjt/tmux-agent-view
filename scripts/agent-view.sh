@@ -331,7 +331,7 @@ picker() {
       --header-first \
       --color='header:dim,pointer:cyan,hl:cyan,hl+:cyan,bg+:236,gutter:-1,border:240' \
       --preview="tmux capture-pane -ep -t {1}" \
-      --preview-window='right,55%,border-left' \
+      --preview-window='bottom,55%,border-top' \
       --bind="ctrl-r:reload('$SELF' list)")" || return 0
 
     pane_id="${sel%%	*}"
