@@ -239,7 +239,7 @@ render_list() {
   host="$(hostname 2>/dev/null)"   # e.g. PeixiangdeMacBook-Pro.local
   hshort="${host%%.*}"             # e.g. PeixiangdeMacBook-Pro
   while IFS='	' read -r pane_id rank status session win_idx win_name title path attached stack; do
-    local icon label color branch here session_col title_col
+    local icon label color branch here session_col winname_col title_col
     style "$status"
     icon="$STYLE_ICON"
     label="$STYLE_LABEL"
@@ -253,9 +253,10 @@ render_list() {
 
     # Claude Code sets pane_title to the conversation topic; a plain shell
     # leaves the OS default — "user@host: path" or a bare hostname — which
-    # tells us nothing. Fall back to the window name in those cases.
+    # tells us nothing. The window name is shown alongside it, so just blank
+    # a generic title rather than duplicating the window name into it.
     case "$title" in
-      *@*:* | "$host" | "$hshort") title="$win_name" ;;
+      *@*:* | "$host" | "$hshort") title='' ;;
     esac
 
     branch_for_path "$path"
@@ -263,12 +264,14 @@ render_list() {
     here='  '; [ "$pane_id" = "${AGENT_JUMP_CURRENT:-}" ] && here='◂ '
     fit "$session:$win_idx" 14
     session_col="$FIT_RESULT"
+    fit "$win_name" 14
+    winname_col="$FIT_RESULT"
     fit "$title" 34
     title_col="$FIT_RESULT"
 
-    printf '%s\t%s%b%s\033[0m  \033[1m%s\033[0m  %s  \033[2m%s%s\033[0m\n' \
+    printf '%s\t%s%b%s\033[0m  \033[1m%s\033[0m  \033[2m%s\033[0m  %s  \033[2m%s%s\033[0m\n' \
       "$pane_id" "$here" "$color" "$icon" \
-      "$session_col" "$title_col" \
+      "$session_col" "$winname_col" "$title_col" \
       "${branch:+⎇ $branch · }" "${path/#"$HOME"/\~}"
   done
 }

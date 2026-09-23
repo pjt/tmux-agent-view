@@ -5,18 +5,20 @@ see every AI agent across all your sessions and jump to any of them in one keyst
 Zero configuration.
 
 ```
-┌────────────────────────── ✻ agents ───────────────────────────┐
-│  enter jump · ctrl-r refresh · esc close        ┌─────────────┤
-│ ▲ needs input                                   │             │
-│▌  ▲  proj-a:1   fix login bug       ⎇ fix/login │  (live view │
-│ ✻ working                                       │   of the    │
-│   ✻  proj-b:0   refactor api        ⎇ main      │   selected  │
-│   ✻  proj-b:2   write e2e tests     ⎇ tests     │   agent's   │
-│ ✔ completed                                     │   screen)   │
-│   ✔  proj-c:1   migrate db schema   ⎇ main      │             │
-│ ○ idle                                          │             │
-│◂  ○  proj-c:3   …                               │             │
-└─────────────────────────────────────────────────┴─────────────┘
+┌───────────────────────── ✻ agents ──────────────────────────┐
+│  enter jump · ctrl-r refresh · esc close                 │
+│ ▲ needs input                                            │
+│▌  ▲  proj-a:1   claude   fix login bug       ⎇ fix/login │
+│ ✻ working                                                │
+│   ✻  proj-b:0   claude   refactor api        ⎇ main      │
+│   ✻  proj-b:2   codex    write e2e tests     ⎇ tests     │
+│ ✔ completed                                              │
+│   ✔  proj-c:1   claude   migrate db schema   ⎇ main      │
+│ ○ idle                                                   │
+│◂  ○  proj-c:3   shell    …                               │
+├──────────────────────────────────────────────────────────┤
+│ (live preview of the selected agent's screen)            │
+└──────────────────────────────────────────────────────────┘
 ```
 
 You run one tmux session per project, each window split into an agent pane plus
@@ -70,8 +72,9 @@ turn summary reads as *working*.
   aider / Kimi Code / Pi, grouped by state, agents that need you first
 - **Live preview** — the right half of the picker shows the selected agent's screen,
   in color, as it is right now
-- **Context at a glance** — conversation topic (from the pane title Claude Code sets),
-  git branch of the pane's cwd, working directory; `◂` marks where you came from
+- **Context at a glance** — window name, conversation topic (from the pane title
+  Claude Code sets), git branch of the pane's cwd, working directory; `◂` marks where
+  you came from
 - **Status-line summary** — `▲1 ✻2 ✔3 ○1` in `status-right`; the yellow `▲` tells you
   an agent is blocked on you without opening anything
 
