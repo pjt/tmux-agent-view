@@ -253,26 +253,26 @@ clean_title() { # <title> <host> <hshort>
 # headers/blank separators. Rows stay grouped visually via the rank sort in
 # scan(). AGENT_JUMP_CURRENT marks the pane the popup was opened from.
 #
-# session/window-name/title column widths are sized to content, not guessed:
-# pass 1 measures each column's widest value across every row, capped per
-# column so one long outlier can't dominate the layout — this includes the
-# trailing branch+path text, even though that column is never truncated
-# (see pass 2), because its width still has to come out of the row-width
-# budget below. session and window name then always get their full (capped)
-# width — they're short, structured identifiers, not worth truncating over.
-# title is the free-text column, so it absorbs whatever's actually left of
-# the popup's width once every other column's *measured* width (not a
-# guessed fraction) is subtracted — down to a floor of 10 and up to its own
-# cap — and truncates with an ellipsis via fit() when content doesn't fit.
-# Pass 2 renders using the widths pass 1 settled on. Buffering the whole
-# input first (rather than streaming row-by-row) is what makes measuring
-# content ahead of render possible; picker() already buffers scan()'s output
-# for the same reason.
+# session and window-name column widths are sized to content, not guessed:
+# pass 1 measures each one's widest value across every row, capped so one
+# long outlier can't dominate the layout, then both always render at their
+# full (capped) width -- they're short, structured identifiers, aligned like
+# a table because comparing them at a glance is the point. title and the
+# trailing branch+path text are free-form prose, not structured, so they are
+# NOT aligned into shared columns: pass 2 sizes each row's title against
+# *that row's own* branch+path length, not the widest branch+path in the
+# whole list -- otherwise one pane with a deeply nested cwd would starve
+# every other row's title even though most rows have plenty of room to its
+# right (this is what "lots of room left on the RHS" being truncated
+# anyway was: a shared column width picking the worst case for everyone).
+# Buffering the whole input first (rather than streaming row-by-row) is what
+# makes measuring session/window-name content ahead of render possible;
+# picker() already buffers scan()'s output for the same reason.
 render_list() {
   local host hshort buf pane_id rank status session win_idx win_name title path attached stack
-  local session_w=0 winname_w=0 title_w=0 branchpath_w=0
-  local session_cap=20 winname_cap=28 title_cap=60 branchpath_cap=40
-  local popup_cols overhead_w title_budget branch
+  local session_w=0 winname_w=0
+  local session_cap=20 winname_cap=28 title_cap=60
+  local popup_cols overhead_w
 
   BRANCH_PATHS=()
   BRANCH_NAMES=()
@@ -283,35 +283,21 @@ render_list() {
   [ -z "$buf" ] && return 0
 
   while IFS='	' read -r pane_id rank status session win_idx win_name title path attached stack; do
-    clean_title "$title" "$host" "$hshort"
-    branch_for_path "$path"; branch="$BRANCH_RESULT"
-    dwidth "$session:$win_idx";  [ "$DWIDTH_RESULT" -gt "$session_w" ]    && session_w="$DWIDTH_RESULT"
-    dwidth "$win_name";          [ "$DWIDTH_RESULT" -gt "$winname_w" ]    && winname_w="$DWIDTH_RESULT"
-    dwidth "$CLEAN_TITLE";       [ "$DWIDTH_RESULT" -gt "$title_w" ]      && title_w="$DWIDTH_RESULT"
-    dwidth "${branch:+⎇ $branch · }${path/#"$HOME"/\~}"
-    [ "$DWIDTH_RESULT" -gt "$branchpath_w" ] && branchpath_w="$DWIDTH_RESULT"
+    dwidth "$session:$win_idx"; [ "$DWIDTH_RESULT" -gt "$session_w" ] && session_w="$DWIDTH_RESULT"
+    dwidth "$win_name";         [ "$DWIDTH_RESULT" -gt "$winname_w" ] && winname_w="$DWIDTH_RESULT"
   done <<<"$buf"
   [ "$session_w" -gt "$session_cap" ] && session_w="$session_cap"
   [ "$winname_w" -gt "$winname_cap" ] && winname_w="$winname_cap"
-  [ "$title_w" -gt "$title_cap" ] && title_w="$title_cap"
-  # Capped for budgeting purposes only -- one row with an unusually long path
-  # shouldn't starve every title of space. The actual branch+path text is
-  # still printed in full in pass 2, uncapped.
-  [ "$branchpath_w" -gt "$branchpath_cap" ] && branchpath_w="$branchpath_cap"
 
-  # Fixed chrome ahead of the three sized columns: the "here" marker (2 cols)
-  # + a status icon (2 cols -- dwidth() counts these non-ASCII symbols as
-  # wide) + a literal space + the state label column (11, see printf below).
+  # Fixed chrome ahead of the two sized columns: the "here" marker (2 cols) +
+  # a status icon (2 cols -- dwidth() counts these non-ASCII symbols as wide)
+  # + a literal space + the state label column (11, see printf below).
   overhead_w=15
   popup_cols="$(tput cols 2>/dev/null)"; popup_cols="${popup_cols:-100}"
-  # 4 "  " gaps between the 5 columns (label/session/winname/title/branchpath),
-  # plus a 2-column margin so the line never brushes the popup's edge.
-  title_budget=$(( popup_cols - 2 - overhead_w - 4*2 - session_w - winname_w - branchpath_w ))
-  [ "$title_budget" -lt 10 ] && title_budget=10
-  [ "$title_w" -gt "$title_budget" ] && title_w="$title_budget"
 
   while IFS='	' read -r pane_id rank status session win_idx win_name title path attached stack; do
     local icon label color branch here session_col winname_col title_col label_col
+    local branchpath branchpath_w title_w
     style "$status"
     icon="$STYLE_ICON"
     label="$STYLE_LABEL"
@@ -322,6 +308,9 @@ render_list() {
 
     branch_for_path "$path"
     branch="$BRANCH_RESULT"
+    branchpath="${branch:+⎇ $branch · }${path/#"$HOME"/\~}"
+    dwidth "$branchpath"; branchpath_w="$DWIDTH_RESULT"
+
     here='  '; [ "$pane_id" = "${AGENT_JUMP_CURRENT:-}" ] && here='◂ '
     # Widest label is "needs input" (11); pad so the following columns align.
     printf -v label_col '%-11s' "$label"
@@ -329,13 +318,22 @@ render_list() {
     session_col="$FIT_RESULT"
     fit "$win_name" "$winname_w"
     winname_col="$FIT_RESULT"
+
+    # This row's own remaining width, not a shared worst-case: popup width
+    # minus the fixed chrome, the two "  " gaps around title, the aligned
+    # columns, and THIS row's branch+path -- floored so title never vanishes
+    # and capped so one empty-cwd row doesn't stretch title unreasonably.
+    dwidth "$title"; title_w="$DWIDTH_RESULT"
+    local title_budget=$(( popup_cols - 2 - overhead_w - 4 - session_w - winname_w - branchpath_w ))
+    [ "$title_budget" -lt 10 ] && title_budget=10
+    [ "$title_w" -gt "$title_budget" ] && title_w="$title_budget"
+    [ "$title_w" -gt "$title_cap" ] && title_w="$title_cap"
     fit "$title" "$title_w"
     title_col="$FIT_RESULT"
 
-    printf '%s\t%s%b%s %s\033[0m  \033[1m%s\033[0m  %s  %s  \033[2m%s%s\033[0m\n' \
+    printf '%s\t%s%b%s %s\033[0m  \033[1m%s\033[0m  %s  %s  \033[2m%s\033[0m\n' \
       "$pane_id" "$here" "$color" "$icon" "$label_col" \
-      "$session_col" "$winname_col" "$title_col" \
-      "${branch:+⎇ $branch · }" "${path/#"$HOME"/\~}"
+      "$session_col" "$winname_col" "$title_col" "$branchpath"
   done <<<"$buf"
 }
 
