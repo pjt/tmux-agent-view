@@ -255,20 +255,25 @@ clean_title() { # <title> <host> <hshort>
 #
 # session/window-name/title column widths are sized to content, not guessed:
 # pass 1 measures each column's widest value across every row, capped per
-# column so one long outlier can't dominate the layout. session and window
-# name then always get their full (capped) width — they're short, structured
-# identifiers, not worth truncating over. title is the free-text column, so
-# it absorbs whatever's left of @agent-view-columns-pct of the popup's width,
-# down to a floor of 10 and up to its own cap, and truncates with an ellipsis
-# via fit() when content doesn't fit. Pass 2 renders using the widths pass 1
-# settled on. Buffering the whole input first (rather than streaming
-# row-by-row) is what makes measuring content ahead of render possible;
-# picker() already buffers scan()'s output for the same reason.
+# column so one long outlier can't dominate the layout — this includes the
+# trailing branch+path text, even though that column is never truncated
+# (see pass 2), because its width still has to come out of the row-width
+# budget below. session and window name then always get their full (capped)
+# width — they're short, structured identifiers, not worth truncating over.
+# title is the free-text column, so it absorbs whatever's actually left of
+# the popup's width once every other column's *measured* width (not a
+# guessed fraction) is subtracted — down to a floor of 10 and up to its own
+# cap — and truncates with an ellipsis via fit() when content doesn't fit.
+# Pass 2 renders using the widths pass 1 settled on. Buffering the whole
+# input first (rather than streaming row-by-row) is what makes measuring
+# content ahead of render possible; picker() already buffers scan()'s output
+# for the same reason.
 render_list() {
   local host hshort buf pane_id rank status session win_idx win_name title path attached stack
-  local session_w=0 winname_w=0 title_w=0
-  local session_cap=20 winname_cap=28 title_cap=60
-  local popup_cols budget title_budget
+  local session_w=0 winname_w=0 title_w=0 branchpath_w=0
+  local session_cap=20 winname_cap=28 title_cap=60 branchpath_cap=40
+  local popup_cols overhead_w title_budget branch
+
   BRANCH_PATHS=()
   BRANCH_NAMES=()
   host="$(hostname 2>/dev/null)"   # e.g. PeixiangdeMacBook-Pro.local
@@ -279,17 +284,29 @@ render_list() {
 
   while IFS='	' read -r pane_id rank status session win_idx win_name title path attached stack; do
     clean_title "$title" "$host" "$hshort"
-    dwidth "$session:$win_idx";  [ "$DWIDTH_RESULT" -gt "$session_w" ] && session_w="$DWIDTH_RESULT"
-    dwidth "$win_name";          [ "$DWIDTH_RESULT" -gt "$winname_w" ] && winname_w="$DWIDTH_RESULT"
-    dwidth "$CLEAN_TITLE";       [ "$DWIDTH_RESULT" -gt "$title_w" ]   && title_w="$DWIDTH_RESULT"
+    branch_for_path "$path"; branch="$BRANCH_RESULT"
+    dwidth "$session:$win_idx";  [ "$DWIDTH_RESULT" -gt "$session_w" ]    && session_w="$DWIDTH_RESULT"
+    dwidth "$win_name";          [ "$DWIDTH_RESULT" -gt "$winname_w" ]    && winname_w="$DWIDTH_RESULT"
+    dwidth "$CLEAN_TITLE";       [ "$DWIDTH_RESULT" -gt "$title_w" ]      && title_w="$DWIDTH_RESULT"
+    dwidth "${branch:+⎇ $branch · }${path/#"$HOME"/\~}"
+    [ "$DWIDTH_RESULT" -gt "$branchpath_w" ] && branchpath_w="$DWIDTH_RESULT"
   done <<<"$buf"
   [ "$session_w" -gt "$session_cap" ] && session_w="$session_cap"
   [ "$winname_w" -gt "$winname_cap" ] && winname_w="$winname_cap"
   [ "$title_w" -gt "$title_cap" ] && title_w="$title_cap"
+  # Capped for budgeting purposes only -- one row with an unusually long path
+  # shouldn't starve every title of space. The actual branch+path text is
+  # still printed in full in pass 2, uncapped.
+  [ "$branchpath_w" -gt "$branchpath_cap" ] && branchpath_w="$branchpath_cap"
 
+  # Fixed chrome ahead of the three sized columns: the "here" marker (2 cols)
+  # + a status icon (2 cols -- dwidth() counts these non-ASCII symbols as
+  # wide) + a literal space + the state label column (11, see printf below).
+  overhead_w=15
   popup_cols="$(tput cols 2>/dev/null)"; popup_cols="${popup_cols:-100}"
-  budget=$(( popup_cols * $(opt @agent-view-columns-pct 60) / 100 ))
-  title_budget=$(( budget - session_w - winname_w ))
+  # 4 "  " gaps between the 5 columns (label/session/winname/title/branchpath),
+  # plus a 2-column margin so the line never brushes the popup's edge.
+  title_budget=$(( popup_cols - 2 - overhead_w - 4*2 - session_w - winname_w - branchpath_w ))
   [ "$title_budget" -lt 10 ] && title_budget=10
   [ "$title_w" -gt "$title_budget" ] && title_w="$title_budget"
 

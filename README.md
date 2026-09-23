@@ -146,7 +146,6 @@ Set in `~/.tmux.conf` before the plugin line:
 | `@agent-view-pattern` | `claude\|codex\|opencode\|aider\|kimi(-code)?([^-]\|$)\|pi-coding-agent\|(^\|/)pi$` | regex matched against pane child processes |
 | `@agent-view-width` | `90%` | popup width |
 | `@agent-view-height` | `75%` | popup height |
-| `@agent-view-columns-pct` | `60` | max % of popup width spent on the session/window-name/title columns combined |
 
 Example:
 
