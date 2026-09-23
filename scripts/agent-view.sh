@@ -266,10 +266,10 @@ render_list() {
     session_col="$FIT_RESULT"
     fit "$win_name" 14
     winname_col="$FIT_RESULT"
-    fit "$title" 34
+    fit "$title" 50
     title_col="$FIT_RESULT"
 
-    printf '%s\t%s%b%s\033[0m  \033[1m%s\033[0m  \033[2m%s\033[0m  %s  \033[2m%s%s\033[0m\n' \
+    printf '%s\t%s%b%s\033[0m  \033[1m%s\033[0m  %s  %s  \033[2m%s%s\033[0m\n' \
       "$pane_id" "$here" "$color" "$icon" \
       "$session_col" "$winname_col" "$title_col" \
       "${branch:+⎇ $branch · }" "${path/#"$HOME"/\~}"
