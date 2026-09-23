@@ -289,11 +289,19 @@ render_list() {
   [ "$session_w" -gt "$session_cap" ] && session_w="$session_cap"
   [ "$winname_w" -gt "$winname_cap" ] && winname_w="$winname_cap"
 
-  # Fixed chrome ahead of the two sized columns: the "here" marker (2 cols) +
-  # a status icon (2 cols -- dwidth() counts these non-ASCII symbols as wide)
-  # + a literal space + the state label column (11, see printf below).
-  overhead_w=15
-  popup_cols="$(tput cols 2>/dev/null)"; popup_cols="${popup_cols:-100}"
+  # Fixed chrome on every row: the "here" marker (2 cols) + a status icon
+  # (2 cols -- dwidth() counts these non-ASCII symbols as wide) + a literal
+  # space + the state label column (11) + the four "  " gaps between the
+  # five rendered fields (label/session/winname/title/branchpath), per the
+  # printf below: 2+2+1+11 + 4*2 = 24.
+  overhead_w=24
+  # tput reads window size via the terminal on its stdin; render_list's own
+  # stdin is a pipe (scan's output, or the buffered $buf here-string upstream
+  # in the caller), so without forcing /dev/tty explicitly, tput silently
+  # falls back to a terminfo default (80 on Linux) instead of the popup's
+  # real width -- confirmed on GNU/Linux; harmless where /dev/tty is
+  # unavailable, since the 2>/dev/null + fallback below still applies.
+  popup_cols="$( { tput cols < /dev/tty; } 2>/dev/null )"; popup_cols="${popup_cols:-100}"
 
   while IFS='	' read -r pane_id rank status session win_idx win_name title path attached stack; do
     local icon label color branch here session_col winname_col title_col label_col
@@ -324,7 +332,7 @@ render_list() {
     # columns, and THIS row's branch+path -- floored so title never vanishes
     # and capped so one empty-cwd row doesn't stretch title unreasonably.
     dwidth "$title"; title_w="$DWIDTH_RESULT"
-    local title_budget=$(( popup_cols - 2 - overhead_w - 4 - session_w - winname_w - branchpath_w ))
+    local title_budget=$(( popup_cols - 2 - overhead_w - session_w - winname_w - branchpath_w ))
     [ "$title_budget" -lt 10 ] && title_budget=10
     [ "$title_w" -gt "$title_budget" ] && title_w="$title_budget"
     [ "$title_w" -gt "$title_cap" ] && title_w="$title_cap"
